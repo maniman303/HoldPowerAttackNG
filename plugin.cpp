@@ -10,7 +10,7 @@ using namespace SKSE::stl;
 const bool isEnabled = true;
 
 const uint64_t DUAL_ATTACK_TIME_DIFF = 333;
-const float POWER_ATTACK_MIN_HOLD_TIME = 0.65f;
+const float POWER_ATTACK_MIN_HOLD_TIME = 0.33f;
 
 std::string rightHand = "player.pa ActionRightAttack";
 std::string leftHand = "player.pa ActionLeftAttack";
@@ -308,6 +308,52 @@ public:
 private:
     static std::unordered_map<uintptr_t, FnProcessButton> fnHash;
 
+    void ProcessEventUp(PlayerCharacter* playerCharacter, bool isLeft) {
+        auto tempLeftHoldTime = leftHoldTime;
+        auto tempRightHoldTime = rightHoldTime;
+
+        auto shouldAttack = false;
+        uint64_t timeDiff = 0;
+
+        if (isLeft) {
+            leftHoldTime = 0;
+            leftLastTime = TimeMillisec();
+            shouldAttack = tempRightHoldTime == 0;
+        } else {
+            rightHoldTime = 0;
+            rightLastTime = TimeMillisec();
+            shouldAttack = tempLeftHoldTime == 0;
+        }
+
+        timeDiff = Abs(leftLastTime - rightLastTime);
+
+        bool isBlocking = false;
+        playerCharacter->GetGraphVariableBool("IsBlocking", isBlocking);
+
+        if (isBlocking) {
+            return;
+        }
+
+        if (shouldAttack || (timeDiff == 0 && isLeft)) {
+            if (timeDiff == 0) {
+                logger::info("Nice reflex!");
+            }
+
+            auto isDualWielding = IsDualWielding();
+            auto isPowerAttack =
+                IsPowerAttack(Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
+            auto attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, false);
+
+            RunConsoleCommand(attackDirection);
+
+            if (isPowerAttack) {
+                attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, true);
+
+                RunConsoleCommand(attackDirection);
+            }
+        }
+    }
+
     void ProcessEvent(ButtonEvent* buttonEvent) {
         const auto playerCharacter = PlayerCharacter::GetSingleton();
 
@@ -324,59 +370,7 @@ private:
         }
 
         if (buttonEvent->IsUp()) {
-            auto tempLeftHoldTime = leftHoldTime;
-            auto tempRightHoldTime = rightHoldTime;
-
-            auto shouldAttack = false;
-            uint64_t timeDiff = 0;
-
-            if (isLeft) {
-                leftHoldTime = 0;
-                leftLastTime = TimeMillisec();
-                shouldAttack = tempRightHoldTime == 0;
-            } else {
-                rightHoldTime = 0;
-                rightLastTime = TimeMillisec();
-                shouldAttack = tempLeftHoldTime == 0;
-            }
-
-            timeDiff = Abs(leftLastTime - rightLastTime);
-
-            auto isPowerAttackHappening = false;
-            playerCharacter->GetGraphVariableBool("bAllowRotation", isPowerAttackHappening);
-
-            /*if (isPowerAttackHappening)
-            {
-                logger::info("Busted");
-
-                return;
-            }*/
-
-            bool isBlocking = false;
-            playerCharacter->GetGraphVariableBool("IsBlocking", isBlocking);
-
-            if (isBlocking) {
-                return;
-            }
-
-            if (shouldAttack || (timeDiff == 0 && isLeft)) {
-                if (timeDiff == 0) {
-                    logger::info("Nice reflex!");
-                }
-
-                auto isDualWielding = IsDualWielding();
-                auto isPowerAttack =
-                    IsPowerAttack(Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
-                auto attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, false);
-
-                RunConsoleCommand(attackDirection);
-
-                if (isPowerAttack) {
-                    attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, true);
-
-                    RunConsoleCommand(attackDirection);
-                }
-            }
+            ProcessEventUp(playerCharacter, isLeft);
         }
     }
 };
