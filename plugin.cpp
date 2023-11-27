@@ -9,7 +9,7 @@ using namespace SKSE::stl;
 
 const bool isEnabled = true;
 
-const uint64_t DUAL_ATTACK_TIME_DIFF = 333;
+const uint64_t DUAL_ATTACK_TIME_DIFF = 120;
 const float POWER_ATTACK_MIN_HOLD_TIME = 0.33f;
 
 std::string rightHand = "player.pa ActionRightAttack";
@@ -19,11 +19,21 @@ std::string rightPowerHand = "player.pa ActionRightPowerAttack";
 std::string leftPowerHand = "player.pa ActionLeftPowerAttack";
 std::string bothPowerHands = "player.pa ActionDualPowerAttack";
 
-float leftHoldTime = 0.0;
-float rightHoldTime = 0.0;
+BGSAction* actionRightAttack;
+BGSAction* actionLeftAttack;
+BGSAction* actionDualAttack;
+BGSAction* actionRightPowerAttack;
+BGSAction* actionLeftPowerAttack;
+BGSAction* actionDualPowerAttack;
+
+float leftHoldTime = 0.0f;
+float rightHoldTime = 0.0f;
 
 uint64_t leftLastTime = 0;
 uint64_t rightLastTime = 0;
+
+bool isLeftDualHeld = false;
+bool isRightDualHeld = false;
 
 bool leftAltBehavior = false;
 bool rightAltBehavior = false;
@@ -54,12 +64,12 @@ void LoadSettings() {
     (void)ini.SaveFile(path);
 }
 
-uint64_t Abs(uint64_t val) {
-    if (val < 0) {
-        return val * -1;
+uint64_t AbsDiff(uint64_t left, uint64_t right) {
+    if (right > left) {
+        return right - left;
     }
 
-    return val;
+    return left - right;
 }
 
 float Max(float left, float right) {
@@ -81,28 +91,6 @@ float Min(float left, float right) {
 uint64_t TimeMillisec() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-}
-
-bool IsPowerAttack(float maxDuration, bool isOtherHandBusy) {
-    auto isPowerAttack = maxDuration > POWER_ATTACK_MIN_HOLD_TIME;
-
-    if (isOtherHandBusy) {
-        isPowerAttack = false;
-    }
-
-    return isPowerAttack;
-}
-
-std::string GetAttackAction(bool isLeft, uint64_t timeDiff, bool isDualWielding, bool isPowerAttack) {
-    if (timeDiff < DUAL_ATTACK_TIME_DIFF && isDualWielding) {
-        return isPowerAttack ? bothPowerHands : bothHands;
-    }
-
-    if (isLeft) {
-        return isPowerAttack ? leftPowerHand : leftHand;
-    }
-
-    return isPowerAttack ? rightPowerHand : rightHand;
 }
 
 void RunConsoleCommand(std::string a_command) {
@@ -173,6 +161,28 @@ uint32_t GamepadKeycode(uint32_t dxScanCode) {
             break;
     }
     return dxGamepadKeycode;
+}
+
+bool IsPowerAttack(float maxDuration, bool isOtherHandBusy) {
+    auto isPowerAttack = maxDuration > POWER_ATTACK_MIN_HOLD_TIME;
+
+    if (isOtherHandBusy) {
+        isPowerAttack = false;
+    }
+
+    return isPowerAttack;
+}
+
+std::string GetAttackAction(bool isLeft, uint64_t timeDiff, bool isDualWielding, bool isDualHeld, bool isPowerAttack) {
+    if (isDualWielding && isDualHeld && timeDiff < DUAL_ATTACK_TIME_DIFF) {
+        return isPowerAttack ? bothPowerHands : bothHands;
+    }
+
+    if (isLeft) {
+        return isPowerAttack ? leftPowerHand : leftHand;
+    }
+
+    return isPowerAttack ? rightPowerHand : rightHand;
 }
 
 bool IsEventLeft(ButtonEvent* a_event) {
@@ -312,20 +322,25 @@ private:
         auto tempLeftHoldTime = leftHoldTime;
         auto tempRightHoldTime = rightHoldTime;
 
+        auto tempIsLeftDualHeld = isLeftDualHeld;
+        auto tempIsRightDualHeld = isRightDualHeld;
+
         auto shouldAttack = false;
         uint64_t timeDiff = 0;
 
         if (isLeft) {
-            leftHoldTime = 0;
+            leftHoldTime = 0.0f;
             leftLastTime = TimeMillisec();
-            shouldAttack = tempRightHoldTime == 0;
+            isRightDualHeld = false;
+            shouldAttack = tempRightHoldTime == 0.0f;
         } else {
-            rightHoldTime = 0;
+            rightHoldTime = 0.0f;
             rightLastTime = TimeMillisec();
-            shouldAttack = tempLeftHoldTime == 0;
+            isLeftDualHeld = false;
+            shouldAttack = tempLeftHoldTime == 0.0f;
         }
 
-        timeDiff = Abs(leftLastTime - rightLastTime);
+        timeDiff = AbsDiff(leftLastTime, rightLastTime);
 
         bool isBlocking = false;
         playerCharacter->GetGraphVariableBool("IsBlocking", isBlocking);
@@ -340,14 +355,19 @@ private:
             }
 
             auto isDualWielding = IsDualWielding();
+            auto isDualHeld = isLeft ? tempIsRightDualHeld : tempIsLeftDualHeld;
+
             auto isPowerAttack =
                 IsPowerAttack(Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
-            auto attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, false);
+            auto attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
+
+            //logger::info("Left last time: {0}", leftLastTime);
+            //logger::info("Right last time: {0}", rightLastTime);
 
             RunConsoleCommand(attackDirection);
 
             if (isPowerAttack) {
-                attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, true);
+                attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
 
                 RunConsoleCommand(attackDirection);
             }
@@ -363,9 +383,11 @@ private:
             if (isLeft) {
                 leftHoldTime = buttonEvent->HeldDuration();
                 leftAltBehavior = false;
+                isRightDualHeld = isRightDualHeld || rightHoldTime > 0.0f;
             } else {
                 rightHoldTime = buttonEvent->HeldDuration();
                 rightAltBehavior = false;
+                isLeftDualHeld = isLeftDualHeld || leftHoldTime > 0.0f;
             }
         }
 
@@ -378,6 +400,13 @@ std::unordered_map<uintptr_t, HookAttackBlockHandler::FnProcessButton> HookAttac
 
 void OnMessage(SKSE::MessagingInterface::Message* message) {
     if (message->type == SKSE::MessagingInterface::kDataLoaded) {
+        actionRightAttack = (BGSAction*)TESForm::LookupByID(0x13005);
+        actionLeftAttack = (BGSAction*)TESForm::LookupByID(0x13004);
+        actionDualAttack = (BGSAction*)TESForm::LookupByID(0x50c96);
+        actionRightPowerAttack = (BGSAction*)TESForm::LookupByID(0x13383);
+        actionLeftPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f6);
+        actionDualPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f7);
+
         HookAttackBlockHandler::Hook();
     }
 }
