@@ -9,8 +9,12 @@ using namespace SKSE::stl;
 
 const bool isEnabled = true;
 
+const bool IS_DEBUG = false;
+
 const uint64_t DUAL_ATTACK_TIME_DIFF = 120;
 const float POWER_ATTACK_MIN_HOLD_TIME = 0.33f;
+
+const TaskInterface* tasks = NULL;
 
 std::string rightHand = "player.pa ActionRightAttack";
 std::string leftHand = "player.pa ActionLeftAttack";
@@ -104,6 +108,27 @@ void RunConsoleCommand(std::string a_command) {
     }
 }
 
+void PerformAction(BGSAction* action, Actor* actor) {
+    if (tasks == NULL) {
+        logger::info("Tasks not initialized.");
+
+        return;
+    }
+    
+    tasks->AddTask([action, actor]() {
+        std::unique_ptr<TESActionData> data(TESActionData::Create());
+        data->source = NiPointer<TESObjectREFR>(actor);
+        data->action = action;
+        typedef bool func_t(TESActionData*);
+        REL::Relocation<func_t> func{RELOCATION_ID(40551, 41557)};
+        bool succ = func(data.get());
+
+        if (!succ && IS_DEBUG) {
+            logger::info("Failed to perform action.");
+        }
+    });
+}
+
 uint32_t GamepadKeycode(uint32_t dxScanCode) {
     int dxGamepadKeycode = -1;
     RE::BSWin32GamepadDevice::Key gamepadKey = static_cast<RE::BSWin32GamepadDevice::Key>(dxScanCode);
@@ -173,7 +198,7 @@ bool IsPowerAttack(float maxDuration, bool isOtherHandBusy) {
     return isPowerAttack;
 }
 
-std::string GetAttackAction(bool isLeft, uint64_t timeDiff, bool isDualWielding, bool isDualHeld, bool isPowerAttack) {
+std::string GetAttackCommand(bool isLeft, uint64_t timeDiff, bool isDualWielding, bool isDualHeld, bool isPowerAttack) {
     if (isDualWielding && isDualHeld && timeDiff < DUAL_ATTACK_TIME_DIFF) {
         return isPowerAttack ? bothPowerHands : bothHands;
     }
@@ -183,6 +208,18 @@ std::string GetAttackAction(bool isLeft, uint64_t timeDiff, bool isDualWielding,
     }
 
     return isPowerAttack ? rightPowerHand : rightHand;
+}
+
+BGSAction* GetAttackAction(bool isLeft, uint64_t timeDiff, bool isDualWielding, bool isDualHeld, bool isPowerAttack) {
+    if (isDualWielding && isDualHeld && timeDiff < DUAL_ATTACK_TIME_DIFF) {
+        return isPowerAttack ? actionDualPowerAttack : actionDualAttack;
+    }
+
+    if (isLeft) {
+        return isPowerAttack ? actionLeftPowerAttack : actionLeftAttack;
+    }
+
+    return isPowerAttack ? actionRightPowerAttack : actionRightAttack;
 }
 
 bool IsEventLeft(ButtonEvent* a_event) {
@@ -359,17 +396,14 @@ private:
 
             auto isPowerAttack =
                 IsPowerAttack(Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
-            auto attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
+            auto attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
 
-            //logger::info("Left last time: {0}", leftLastTime);
-            //logger::info("Right last time: {0}", rightLastTime);
-
-            RunConsoleCommand(attackDirection);
+            PerformAction(attackAction, playerCharacter);
 
             if (isPowerAttack) {
-                attackDirection = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
+                attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
 
-                RunConsoleCommand(attackDirection);
+                PerformAction(attackAction, playerCharacter);
             }
         }
     }
@@ -411,8 +445,8 @@ void OnMessage(SKSE::MessagingInterface::Message* message) {
     }
 }
 
-SKSEPluginLoad(const SKSE::LoadInterface* skse) {
-    SKSE::Init(skse);
+SKSEPluginLoad(const LoadInterface* skse) {
+    Init(skse);
 
     SetupLog();
     logger::info("Setup log...");
@@ -424,7 +458,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         logger::info("Mod is disabled...");
     }
 
-    SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
+    tasks = GetTaskInterface();
+    GetMessagingInterface()->RegisterListener(OnMessage);
 
     return true;
 }
