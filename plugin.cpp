@@ -406,7 +406,7 @@ public:
             stl::unrestricted_cast<FnProcessButton>(vtable.write_vfunc(4, &HookAttackBlockHandler::ProcessButton));
         fnHash.insert(std::pair<uintptr_t, FnProcessButton>(vtable.address(), fn));
 
-        logger::info("Hooked Attack Blocker OK...");
+        logger::info("Hooked Attack System OK...");
     }
 
 private:
@@ -462,11 +462,7 @@ private:
             if (isPowerAttack) {
                 attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
 
-                logger::info("Performing PA, isLeft: {0}", isLeft);
-
                 PerformAction(attackAction, playerCharacter, true);
-            } else {
-                logger::info("Performing NA, isLeft: {0}", isLeft);
             }
         }
     }
