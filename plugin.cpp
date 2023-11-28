@@ -7,8 +7,6 @@ using namespace RE::BSScript;
 using namespace SKSE;
 using namespace SKSE::stl;
 
-const bool isEnabled = true;
-
 const bool IS_DEBUG = false;
 
 const int ACTION_MAX_RETRY = 4;
@@ -17,6 +15,10 @@ const float POWER_ATTACK_MIN_HOLD_TIME = 0.44f;
 const float POWER_ATTACK_SOUND_OFFSET = 0.25f;
 
 enum VibrationType { kSmooth, kDiscrete, kBump };
+
+bool isEnabled = true;
+bool isSoundEnabled = true;
+bool isVibrationEnabled = true;
 
 const TaskInterface* tasks = NULL;
 BSAudioManager* audioManager = NULL;
@@ -77,13 +79,15 @@ void SetupLog() {
 }
 
 void LoadSettings() {
-    constexpr auto path = L"Data/SKSE/Plugins/HoldPowerAttack.ini";
+    constexpr auto path = L"Data/SKSE/Plugins/HoldPowerAttackNG.ini";
 
     CSimpleIniA ini;
     ini.SetUnicode();
     ini.LoadFile(path);
 
-    // isEnabledTest = std::stoi(ini.GetValue("Settings", "IsEnabled", "true"));
+    isEnabled = std::stoi(ini.GetValue("Settings", "Enabled", "1")) > 0;
+    isSoundEnabled = std::stoi(ini.GetValue("Settings", "Sound", "1")) > 0;
+    isVibrationEnabled = std::stoi(ini.GetValue("Settings", "Vibration", "1")) > 0;
 
     (void)ini.SaveFile(path);
 }
@@ -168,6 +172,10 @@ void PerformAction(BGSAction* action, Actor* actor, bool isPowerAttack) {
 }
 
 void PlayDebugSound(BGSSoundDescriptorForm* sound, PlayerCharacter* player) {
+    if (!isSoundEnabled) {
+        return;
+    }
+
     if (!audioManager || !sound) {
         logger::info("Audio manager: {0}, sound {1}", audioManager != NULL, sound != NULL);
         return;
@@ -181,6 +189,10 @@ void PlayDebugSound(BGSSoundDescriptorForm* sound, PlayerCharacter* player) {
 }
 
 static void Vibrate(std::int32_t type, float power, float duration) {
+    if (!isVibrationEnabled) {
+        return;
+    }
+
     using func_t = decltype(&Vibrate);
     REL::Relocation<func_t> func{REL::RelocationID(67220, 68528)};
     func(type, power, duration);
@@ -547,6 +559,8 @@ public:
         FnReceiveEvent fn =
             stl::unrestricted_cast<FnReceiveEvent>(vtable.write_vfunc(1, &HookAnimGraphEvent::ReceiveEventHook));
         fnHash.insert(std::pair<uintptr_t, FnReceiveEvent>(vtable.address(), fn));
+
+        logger::info("Hooked Anim System OK...");
     }
 
 private:
@@ -577,8 +591,8 @@ SKSEPluginLoad(const LoadInterface* skse) {
     SetupLog();
     logger::info("Setup log...");
 
-    // LoadSettings();
-    // logger::info("Settings loaded...");
+    LoadSettings();
+    logger::info("Settings loaded...");
 
     if (!isEnabled) {
         logger::info("Mod is disabled...");
