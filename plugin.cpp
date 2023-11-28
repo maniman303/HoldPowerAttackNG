@@ -314,11 +314,6 @@ bool IsDualWielding() {
     auto weaponLeft = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(true));
     auto weaponRight = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(false));
 
-    /*if (weaponLeft && weaponLeft == weaponRight)
-    {
-        return false;
-    }*/
-
     return IsWeaponValid(weaponLeft, true) && IsWeaponValid(weaponRight, false);
 }
 
@@ -456,13 +451,16 @@ private:
             auto isDualWielding = IsDualWielding();
             auto isDualHeld = isLeft ? tempIsRightDualHeld : tempIsLeftDualHeld;
 
+            auto isAttacking = IsPlayerAttacking(playerCharacter);
             auto isPowerAttack =
                 IsPowerAttack(playerCharacter, Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
             auto attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
 
-            PerformAction(attackAction, playerCharacter, false);
+            if (!isPowerAttack || (isPowerAttack && !isAttacking)) {
+                PerformAction(attackAction, playerCharacter, false);
+            }
 
-            if (isPowerAttack) {
+            if (isPowerAttack && !isAttacking) {
                 attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
 
                 PerformAction(attackAction, playerCharacter, true);
@@ -486,7 +484,7 @@ private:
 
             PlayDebugSound(powerAttackSound, player);
             
-            Vibrate(VibrationType::kSmooth, 0.22f, 0.24f);
+            Vibrate(VibrationType::kSmooth, 0.25f, 0.24f);
         } else {
             SetIsAttackIndicated(isLeft, false);
         }
