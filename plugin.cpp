@@ -257,6 +257,19 @@ uint32_t GamepadKeycode(uint32_t dxScanCode) {
     return dxGamepadKeycode;
 }
 
+bool IsPlayerAttacking(PlayerCharacter* player) {
+    if (player->AsActorState()->GetSitSleepState() == SIT_SLEEP_STATE::kNormal && !player->IsInKillMove()) {
+        ATTACK_STATE_ENUM currentState = (player->AsActorState()->actorState1.meleeAttackState);
+        if (currentState >= ATTACK_STATE_ENUM::kDraw && currentState <= ATTACK_STATE_ENUM::kBash) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    return false;
+}
+
 float GetPlayerStamina(PlayerCharacter* player) {
     return player->AsActorValueOwner()->GetActorValue(ActorValue::kStamina);
 }
@@ -491,9 +504,10 @@ private:
         bool altHandBehavior = isLeft ? rightAltBehavior : leftAltBehavior;
         float holdTime = isLeft ? leftHoldTime : rightHoldTime;
 
+        bool isPlayerAttacking = IsPlayerAttacking(player);
         bool isPowerAttack = IsPowerAttack(player, holdTime, altHandBehavior);
         
-        if (!isAttacking && isPowerAttack) {
+        if (!isPlayerAttacking && isPowerAttack) {
             if (isLeftAttackIndicated || isRightAttackIndicated) {
                 return;
             }
@@ -534,44 +548,6 @@ private:
 };
 std::unordered_map<uintptr_t, HookAttackBlockHandler::FnProcessButton> HookAttackBlockHandler::fnHash;
 
-class HookAnimGraphEvent {
-public:
-    typedef BSEventNotifyControl (HookAnimGraphEvent::*FnReceiveEvent)(
-        BSAnimationGraphEvent* evn, BSTEventSource<BSAnimationGraphEvent>* dispatcher);
-
-    BSEventNotifyControl ReceiveEventHook(BSAnimationGraphEvent* evn, BSTEventSource<BSAnimationGraphEvent>* src) {
-        Actor* a = stl::unrestricted_cast<Actor*>(evn->holder);
-        if (a) {
-            if (a->AsActorState()->GetSitSleepState() == SIT_SLEEP_STATE::kNormal && !a->IsInKillMove()) {
-                ATTACK_STATE_ENUM currentState = (a->AsActorState()->actorState1.meleeAttackState);
-                if (currentState >= ATTACK_STATE_ENUM::kDraw && currentState <= ATTACK_STATE_ENUM::kBash) {
-                    isAttacking = true;
-                } else {
-                    isAttacking = false;
-                }
-            } else {
-                isAttacking = false;
-            }
-        }
-
-        FnReceiveEvent fn = fnHash.at(*(uintptr_t*)this);
-        return fn ? (this->*fn)(evn, src) : BSEventNotifyControl::kContinue;
-    }
-
-    static void Hook() {
-        REL::Relocation<uintptr_t> vtable{VTABLE_PlayerCharacter[2]};
-        FnReceiveEvent fn =
-            stl::unrestricted_cast<FnReceiveEvent>(vtable.write_vfunc(1, &HookAnimGraphEvent::ReceiveEventHook));
-        fnHash.insert(std::pair<uintptr_t, FnReceiveEvent>(vtable.address(), fn));
-
-        logger::info("Hooked Anim System OK...");
-    }
-
-private:
-    static std::unordered_map<uintptr_t, FnReceiveEvent> fnHash;
-};
-std::unordered_map<uintptr_t, HookAnimGraphEvent::FnReceiveEvent> HookAnimGraphEvent::fnHash;
-
 void OnMessage(SKSE::MessagingInterface::Message* message) {
     if (message->type == SKSE::MessagingInterface::kDataLoaded) {
         actionRightAttack = (BGSAction*)TESForm::LookupByID(0x13005);
@@ -585,7 +561,6 @@ void OnMessage(SKSE::MessagingInterface::Message* message) {
         audioManager = BSAudioManager::GetSingleton();
 
         HookAttackBlockHandler::Hook();
-        HookAnimGraphEvent::Hook();
     }
 }
 
