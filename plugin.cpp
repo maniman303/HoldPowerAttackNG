@@ -183,7 +183,7 @@ void PlayDebugSound(BGSSoundDescriptorForm* sound, PlayerCharacter* player) {
 
     BSSoundHandle handle;
     audioManager->BuildSoundDataFromDescriptor(handle, sound->soundDescriptor);
-    handle.SetVolume(0.65f);
+    handle.SetVolume(1.0f);
     handle.SetObjectToFollow(player->Get3D());
     handle.Play();
 }
@@ -257,7 +257,15 @@ uint32_t GamepadKeycode(uint32_t dxScanCode) {
     return dxGamepadKeycode;
 }
 
-bool IsPowerAttack(float maxDuration, bool isOtherHandBusy) {
+float GetPlayerStamina(PlayerCharacter* player) {
+    return player->AsActorValueOwner()->GetActorValue(ActorValue::kStamina);
+}
+
+bool IsPowerAttack(PlayerCharacter* player, float maxDuration, bool isOtherHandBusy) {
+    if (GetPlayerStamina(player) <= 1.0f) {
+        return false;
+    }
+
     auto isPowerAttack = maxDuration > POWER_ATTACK_MIN_HOLD_TIME;
 
     if (isOtherHandBusy) {
@@ -466,7 +474,7 @@ private:
             auto isDualHeld = isLeft ? tempIsRightDualHeld : tempIsLeftDualHeld;
 
             auto isPowerAttack =
-                IsPowerAttack(Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
+                IsPowerAttack(playerCharacter, Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
             auto attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
 
             PerformAction(attackAction, playerCharacter, false);
@@ -483,8 +491,9 @@ private:
         bool altHandBehavior = isLeft ? rightAltBehavior : leftAltBehavior;
         float holdTime = isLeft ? leftHoldTime : rightHoldTime;
 
+        bool isPowerAttack = IsPowerAttack(player, holdTime, altHandBehavior);
         
-        if (!isAttacking && !altHandBehavior && holdTime > POWER_ATTACK_MIN_HOLD_TIME - POWER_ATTACK_SOUND_OFFSET) {
+        if (!isAttacking && isPowerAttack) {
             if (isLeftAttackIndicated || isRightAttackIndicated) {
                 return;
             }
@@ -493,12 +502,7 @@ private:
 
             PlayDebugSound(powerAttackSound, player);
             
-            std::thread thread([]() {
-                long timeSpan = POWER_ATTACK_SOUND_OFFSET * 1000;
-                std::this_thread::sleep_for(std::chrono::milliseconds(timeSpan));
-                Vibrate(VibrationType::kSmooth, 0.22f, 0.24f);
-            });
-            thread.detach();
+            Vibrate(VibrationType::kSmooth, 0.22f, 0.24f);
         } else {
             SetIsAttackIndicated(isLeft, false);
         }
@@ -576,7 +580,7 @@ void OnMessage(SKSE::MessagingInterface::Message* message) {
         actionRightPowerAttack = (BGSAction*)TESForm::LookupByID(0x13383);
         actionLeftPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f6);
         actionDualPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f7);
-        powerAttackSound = (BGSSoundDescriptorForm*)TESForm::LookupByID(0x7c71f);  // 3c72e
+        powerAttackSound = (BGSSoundDescriptorForm*)TESForm::LookupByID(0x10eb7a);
 
         audioManager = BSAudioManager::GetSingleton();
 
