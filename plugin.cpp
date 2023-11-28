@@ -11,10 +11,17 @@ const bool isEnabled = true;
 
 const bool IS_DEBUG = false;
 
-const uint64_t DUAL_ATTACK_TIME_DIFF = 120;
-const float POWER_ATTACK_MIN_HOLD_TIME = 0.33f;
+const int ACTION_MAX_RETRY = 4;
+const uint64_t DUAL_ATTACK_TIME_DIFF = 110;
+const float POWER_ATTACK_MIN_HOLD_TIME = 0.44f;
+const float POWER_ATTACK_SOUND_OFFSET = 0.25f;
+
+enum VibrationType { kSmooth, kDiscrete, kBump };
 
 const TaskInterface* tasks = NULL;
+BSAudioManager* audioManager = NULL;
+
+BGSSoundDescriptorForm* powerAttackSound;
 
 std::string rightHand = "player.pa ActionRightAttack";
 std::string leftHand = "player.pa ActionLeftAttack";
@@ -30,6 +37,8 @@ BGSAction* actionRightPowerAttack;
 BGSAction* actionLeftPowerAttack;
 BGSAction* actionDualPowerAttack;
 
+bool isAttacking;
+
 float leftHoldTime = 0.0f;
 float rightHoldTime = 0.0f;
 
@@ -41,6 +50,17 @@ bool isRightDualHeld = false;
 
 bool leftAltBehavior = false;
 bool rightAltBehavior = false;
+
+bool isLeftAttackIndicated = false;
+bool isRightAttackIndicated = false;
+
+void SetIsAttackIndicated(bool isLeft, bool value) {
+    if (isLeft) {
+        isLeftAttackIndicated = value;
+    } else {
+        isRightAttackIndicated = value;
+    }
+}
 
 std::string isEnabledTest = "true";
 
@@ -108,14 +128,14 @@ void RunConsoleCommand(std::string a_command) {
     }
 }
 
-void PerformAction(BGSAction* action, Actor* actor) {
+void PerformAction(BGSAction* action, Actor* actor, int index) {
     if (tasks == NULL) {
         logger::info("Tasks not initialized.");
 
         return;
     }
     
-    tasks->AddTask([action, actor]() {
+    tasks->AddTask([action, actor, index]() {
         std::unique_ptr<TESActionData> data(TESActionData::Create());
         data->source = NiPointer<TESObjectREFR>(actor);
         data->action = action;
@@ -123,10 +143,47 @@ void PerformAction(BGSAction* action, Actor* actor) {
         REL::Relocation<func_t> func{RELOCATION_ID(40551, 41557)};
         bool succ = func(data.get());
 
-        if (!succ && IS_DEBUG) {
+        if (!succ && index >= ACTION_MAX_RETRY && IS_DEBUG) {
             logger::info("Failed to perform action.");
         }
+
+        if (!succ && index < ACTION_MAX_RETRY) {
+            std::thread thread([action, actor, index]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                
+                if (IS_DEBUG) {
+                    logger::info("What.");
+                }
+
+                PerformAction(action, actor, index + 1);
+            });
+            thread.detach();
+        }
     });
+}
+
+void PerformAction(BGSAction* action, Actor* actor, bool isPowerAttack) {
+    int index = isPowerAttack ? 0 : ACTION_MAX_RETRY;
+    PerformAction(action, actor, index);
+}
+
+void PlayDebugSound(BGSSoundDescriptorForm* sound, PlayerCharacter* player) {
+    if (!audioManager || !sound) {
+        logger::info("Audio manager: {0}, sound {1}", audioManager != NULL, sound != NULL);
+        return;
+    }
+
+    BSSoundHandle handle;
+    audioManager->BuildSoundDataFromDescriptor(handle, sound->soundDescriptor);
+    handle.SetVolume(0.65f);
+    handle.SetObjectToFollow(player->Get3D());
+    handle.Play();
+}
+
+static void Vibrate(std::int32_t type, float power, float duration) {
+    using func_t = decltype(&Vibrate);
+    REL::Relocation<func_t> func{REL::RelocationID(67220, 68528)};
+    func(type, power, duration);
 }
 
 uint32_t GamepadKeycode(uint32_t dxScanCode) {
@@ -391,6 +448,8 @@ private:
                 logger::info("Nice reflex!");
             }
 
+            SetIsAttackIndicated(isLeft, false);
+
             auto isDualWielding = IsDualWielding();
             auto isDualHeld = isLeft ? tempIsRightDualHeld : tempIsLeftDualHeld;
 
@@ -398,13 +457,42 @@ private:
                 IsPowerAttack(Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
             auto attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
 
-            PerformAction(attackAction, playerCharacter);
+            PerformAction(attackAction, playerCharacter, false);
 
             if (isPowerAttack) {
                 attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
 
-                PerformAction(attackAction, playerCharacter);
+                logger::info("Performing PA, isLeft: {0}", isLeft);
+
+                PerformAction(attackAction, playerCharacter, true);
+            } else {
+                logger::info("Performing NA, isLeft: {0}", isLeft);
             }
+        }
+    }
+
+    void TryIndicatePowerAttack(bool isLeft, PlayerCharacter* player) {
+        bool altHandBehavior = isLeft ? rightAltBehavior : leftAltBehavior;
+        float holdTime = isLeft ? leftHoldTime : rightHoldTime;
+
+        
+        if (!isAttacking && !altHandBehavior && holdTime > POWER_ATTACK_MIN_HOLD_TIME - POWER_ATTACK_SOUND_OFFSET) {
+            if (isLeftAttackIndicated || isRightAttackIndicated) {
+                return;
+            }
+
+            SetIsAttackIndicated(isLeft, true);
+
+            PlayDebugSound(powerAttackSound, player);
+            
+            std::thread thread([]() {
+                long timeSpan = POWER_ATTACK_SOUND_OFFSET * 1000;
+                std::this_thread::sleep_for(std::chrono::milliseconds(timeSpan));
+                Vibrate(VibrationType::kSmooth, 0.22f, 0.24f);
+            });
+            thread.detach();
+        } else {
+            SetIsAttackIndicated(isLeft, false);
         }
     }
 
@@ -423,6 +511,8 @@ private:
                 rightAltBehavior = false;
                 isLeftDualHeld = isLeftDualHeld || leftHoldTime > 0.0f;
             }
+
+            TryIndicatePowerAttack(isLeft, playerCharacter);
         }
 
         if (buttonEvent->IsUp()) {
@@ -432,6 +522,42 @@ private:
 };
 std::unordered_map<uintptr_t, HookAttackBlockHandler::FnProcessButton> HookAttackBlockHandler::fnHash;
 
+class HookAnimGraphEvent {
+public:
+    typedef BSEventNotifyControl (HookAnimGraphEvent::*FnReceiveEvent)(
+        BSAnimationGraphEvent* evn, BSTEventSource<BSAnimationGraphEvent>* dispatcher);
+
+    BSEventNotifyControl ReceiveEventHook(BSAnimationGraphEvent* evn, BSTEventSource<BSAnimationGraphEvent>* src) {
+        Actor* a = stl::unrestricted_cast<Actor*>(evn->holder);
+        if (a) {
+            if (a->AsActorState()->GetSitSleepState() == SIT_SLEEP_STATE::kNormal && !a->IsInKillMove()) {
+                ATTACK_STATE_ENUM currentState = (a->AsActorState()->actorState1.meleeAttackState);
+                if (currentState >= ATTACK_STATE_ENUM::kDraw && currentState <= ATTACK_STATE_ENUM::kBash) {
+                    isAttacking = true;
+                } else {
+                    isAttacking = false;
+                }
+            } else {
+                isAttacking = false;
+            }
+        }
+
+        FnReceiveEvent fn = fnHash.at(*(uintptr_t*)this);
+        return fn ? (this->*fn)(evn, src) : BSEventNotifyControl::kContinue;
+    }
+
+    static void Hook() {
+        REL::Relocation<uintptr_t> vtable{VTABLE_PlayerCharacter[2]};
+        FnReceiveEvent fn =
+            stl::unrestricted_cast<FnReceiveEvent>(vtable.write_vfunc(1, &HookAnimGraphEvent::ReceiveEventHook));
+        fnHash.insert(std::pair<uintptr_t, FnReceiveEvent>(vtable.address(), fn));
+    }
+
+private:
+    static std::unordered_map<uintptr_t, FnReceiveEvent> fnHash;
+};
+std::unordered_map<uintptr_t, HookAnimGraphEvent::FnReceiveEvent> HookAnimGraphEvent::fnHash;
+
 void OnMessage(SKSE::MessagingInterface::Message* message) {
     if (message->type == SKSE::MessagingInterface::kDataLoaded) {
         actionRightAttack = (BGSAction*)TESForm::LookupByID(0x13005);
@@ -440,8 +566,12 @@ void OnMessage(SKSE::MessagingInterface::Message* message) {
         actionRightPowerAttack = (BGSAction*)TESForm::LookupByID(0x13383);
         actionLeftPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f6);
         actionDualPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f7);
+        powerAttackSound = (BGSSoundDescriptorForm*)TESForm::LookupByID(0x7c71f);  // 3c72e
+
+        audioManager = BSAudioManager::GetSingleton();
 
         HookAttackBlockHandler::Hook();
+        HookAnimGraphEvent::Hook();
     }
 }
 
