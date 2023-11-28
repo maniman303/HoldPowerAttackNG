@@ -25,13 +25,6 @@ BSAudioManager* audioManager = NULL;
 
 BGSSoundDescriptorForm* powerAttackSound;
 
-std::string rightHand = "player.pa ActionRightAttack";
-std::string leftHand = "player.pa ActionLeftAttack";
-std::string bothHands = "player.pa ActionDualAttack";
-std::string rightPowerHand = "player.pa ActionRightPowerAttack";
-std::string leftPowerHand = "player.pa ActionLeftPowerAttack";
-std::string bothPowerHands = "player.pa ActionDualPowerAttack";
-
 BGSAction* actionRightAttack;
 BGSAction* actionLeftAttack;
 BGSAction* actionDualAttack;
@@ -119,17 +112,6 @@ float Min(float left, float right) {
 uint64_t TimeMillisec() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-}
-
-void RunConsoleCommand(std::string a_command) {
-    const auto scriptFactory = IFormFactory::GetConcreteFormFactoryByType<Script>();
-    const auto script = scriptFactory ? scriptFactory->Create() : nullptr;
-    if (script) {
-        const auto selectedRef = Console::GetSelectedRef();
-        script->SetCommand(a_command);
-        script->CompileAndRun(selectedRef.get());
-        delete script;
-    }
 }
 
 void PerformAction(BGSAction* action, Actor* actor, int index) {
@@ -286,18 +268,6 @@ bool IsPowerAttack(PlayerCharacter* player, float maxDuration, bool isOtherHandB
     }
 
     return isPowerAttack;
-}
-
-std::string GetAttackCommand(bool isLeft, uint64_t timeDiff, bool isDualWielding, bool isDualHeld, bool isPowerAttack) {
-    if (isDualWielding && isDualHeld && timeDiff < DUAL_ATTACK_TIME_DIFF) {
-        return isPowerAttack ? bothPowerHands : bothHands;
-    }
-
-    if (isLeft) {
-        return isPowerAttack ? leftPowerHand : leftHand;
-    }
-
-    return isPowerAttack ? rightPowerHand : rightHand;
 }
 
 BGSAction* GetAttackAction(bool isLeft, uint64_t timeDiff, bool isDualWielding, bool isDualHeld, bool isPowerAttack) {
