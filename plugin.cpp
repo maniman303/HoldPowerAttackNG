@@ -11,14 +11,14 @@ const bool IS_DEBUG = false;
 
 const int ACTION_MAX_RETRY = 4;
 const uint64_t DUAL_ATTACK_TIME_DIFF = 110;
-const float POWER_ATTACK_MIN_HOLD_TIME = 0.44f;
-const float POWER_ATTACK_SOUND_OFFSET = 0.25f;
+const int POWER_ATTACK_MIN_HOLD_TIME = 440;
 
 enum VibrationType { kSmooth, kDiscrete, kBump };
 
 bool isEnabled = true;
 bool isSoundEnabled = true;
 bool isVibrationEnabled = true;
+float minPowerAttackHoldMs = 0.44f;
 
 const TaskInterface* tasks = NULL;
 BSAudioManager* audioManager = NULL;
@@ -81,6 +81,9 @@ void LoadSettings() {
     isEnabled = std::stoi(ini.GetValue("Settings", "Enabled", "1")) > 0;
     isSoundEnabled = std::stoi(ini.GetValue("Settings", "Sound", "1")) > 0;
     isVibrationEnabled = std::stoi(ini.GetValue("Settings", "Vibration", "1")) > 0;
+    minPowerAttackHoldMs = std::stoi(ini.GetValue("Settings", "MinPowerAttackHoldMs",
+                                                  std::to_string(POWER_ATTACK_MIN_HOLD_TIME).c_str())) /
+                           1000.0f;
 
     (void)ini.SaveFile(path);
 }
@@ -261,7 +264,7 @@ bool IsPowerAttack(PlayerCharacter* player, float maxDuration, bool isOtherHandB
         return false;
     }
 
-    auto isPowerAttack = maxDuration > POWER_ATTACK_MIN_HOLD_TIME;
+    auto isPowerAttack = maxDuration > minPowerAttackHoldMs;
 
     if (isOtherHandBusy) {
         isPowerAttack = false;
@@ -392,6 +395,12 @@ public:
                 leftAltBehavior = a_event->IsHeld();
             } else {
                 rightAltBehavior = a_event->IsHeld();
+            }
+
+            auto isAltBehavior = isLeft ? leftAltBehavior : rightAltBehavior;
+
+            if (isAltBehavior) {
+                SetIsAttackIndicated(isLeft, false);
             }
         }
 
