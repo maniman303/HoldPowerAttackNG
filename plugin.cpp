@@ -78,12 +78,17 @@ void LoadSettings() {
     ini.SetUnicode();
     ini.LoadFile(path);
 
-    isEnabled = std::stoi(ini.GetValue("Settings", "Enabled", "1")) > 0;
-    isSoundEnabled = std::stoi(ini.GetValue("Settings", "Sound", "1")) > 0;
-    isVibrationEnabled = std::stoi(ini.GetValue("Settings", "Vibration", "1")) > 0;
-    minPowerAttackHoldMs = std::stoi(ini.GetValue("Settings", "MinPowerAttackHoldMs",
-                                                  std::to_string(POWER_ATTACK_MIN_HOLD_TIME).c_str())) /
-                           1000.0f;
+    if (ini.IsEmpty()) {
+        ini.SetBoolValue("Settings", "Enabled", true);
+        ini.SetBoolValue("Settings", "Sound", true);
+        ini.SetBoolValue("Settings", "Vibration", true);
+        ini.SetLongValue("Settings", "MinPowerAttackHoldMs", POWER_ATTACK_MIN_HOLD_TIME);
+    }
+
+    isEnabled = ini.GetBoolValue("Settings", "Enabled", true);
+    isSoundEnabled = ini.GetBoolValue("Settings", "Sound", true);
+    isVibrationEnabled = ini.GetBoolValue("Settings", "Vibration", true);
+    minPowerAttackHoldMs = ini.GetLongValue("Settings", "MinPowerAttackHoldMs", POWER_ATTACK_MIN_HOLD_TIME) / 1000.0f;
 
     (void)ini.SaveFile(path);
 }
