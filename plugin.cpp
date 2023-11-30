@@ -12,6 +12,7 @@ const bool IS_DEBUG = false;
 const int ACTION_MAX_RETRY = 4;
 const uint64_t DUAL_ATTACK_TIME_DIFF = 110;
 const int POWER_ATTACK_MIN_HOLD_TIME = 440;
+const int VIBRATION_STRENGTH = 25;
 
 enum VibrationType { kSmooth, kDiscrete, kBump };
 
@@ -19,6 +20,7 @@ bool isEnabled = true;
 bool isSoundEnabled = true;
 bool isVibrationEnabled = true;
 float minPowerAttackHoldMs = 0.44f;
+float vibrationStrength = 0.25f;
 
 const TaskInterface* tasks = NULL;
 BSAudioManager* audioManager = NULL;
@@ -31,8 +33,6 @@ BGSAction* actionDualAttack;
 BGSAction* actionRightPowerAttack;
 BGSAction* actionLeftPowerAttack;
 BGSAction* actionDualPowerAttack;
-
-bool isAttacking;
 
 float leftHoldTime = 0.0f;
 float rightHoldTime = 0.0f;
@@ -78,19 +78,31 @@ void LoadSettings() {
     ini.SetUnicode();
     ini.LoadFile(path);
 
-    if (ini.IsEmpty()) {
-        ini.SetBoolValue("Settings", "Enabled", true);
-        ini.SetBoolValue("Settings", "Sound", true);
-        ini.SetBoolValue("Settings", "Vibration", true);
-        ini.SetLongValue("Settings", "MinPowerAttackHoldMs", POWER_ATTACK_MIN_HOLD_TIME);
-    }
-
     isEnabled = ini.GetBoolValue("Settings", "Enabled", true);
     isSoundEnabled = ini.GetBoolValue("Settings", "Sound", true);
     isVibrationEnabled = ini.GetBoolValue("Settings", "Vibration", true);
     minPowerAttackHoldMs = ini.GetLongValue("Settings", "MinPowerAttackHoldMs", POWER_ATTACK_MIN_HOLD_TIME) / 1000.0f;
+    vibrationStrength = ini.GetLongValue("Settings", "VibrationStrength", VIBRATION_STRENGTH) / 100.0f;
+
+    ini.SetBoolValue("Settings", "Enabled", isEnabled);
+    ini.SetBoolValue("Settings", "Sound", isSoundEnabled);
+    ini.SetBoolValue("Settings", "Vibration", isVibrationEnabled);
+    ini.SetLongValue("Settings", "MinPowerAttackHoldMs", minPowerAttackHoldMs * 1000.0f);
+    ini.SetLongValue("Settings", "VibrationStrength", vibrationStrength * 100.0f);
 
     (void)ini.SaveFile(path);
+}
+
+long Limit(long min, long value, long max) {
+    if (value < min) {
+        return min;
+    }
+
+    if (value > max) {
+        return max;
+    }
+
+    return value;
 }
 
 uint64_t AbsDiff(uint64_t left, uint64_t right) {
@@ -498,7 +510,7 @@ private:
 
             PlayDebugSound(powerAttackSound, player);
             
-            Vibrate(VibrationType::kSmooth, 0.25f, 0.24f);
+            Vibrate(VibrationType::kSmooth, vibrationStrength, 0.24f);
         } else {
             SetIsAttackIndicated(isLeft, false);
         }
