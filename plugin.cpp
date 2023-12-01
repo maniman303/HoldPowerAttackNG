@@ -14,8 +14,6 @@ const uint64_t DUAL_ATTACK_TIME_DIFF = 110;
 const int POWER_ATTACK_MIN_HOLD_TIME = 440;
 const int VIBRATION_STRENGTH = 25;
 
-enum VibrationType { kSmooth, kDiscrete, kBump };
-
 bool isEnabled = true;
 bool isSoundEnabled = true;
 bool isVibrationEnabled = true;
@@ -71,6 +69,18 @@ void SetupLog() {
     spdlog::flush_on(spdlog::level::trace);
 }
 
+long Limit(long min, long value, long max) {
+    if (value < min) {
+        return min;
+    }
+
+    if (value > max) {
+        return max;
+    }
+
+    return value;
+}
+
 void LoadSettings() {
     constexpr auto path = L"Data/SKSE/Plugins/HoldPowerAttackNG.ini";
 
@@ -82,7 +92,7 @@ void LoadSettings() {
     isSoundEnabled = ini.GetBoolValue("Settings", "Sound", true);
     isVibrationEnabled = ini.GetBoolValue("Settings", "Vibration", true);
     minPowerAttackHoldMs = ini.GetLongValue("Settings", "MinPowerAttackHoldMs", POWER_ATTACK_MIN_HOLD_TIME) / 1000.0f;
-    vibrationStrength = ini.GetLongValue("Settings", "VibrationStrength", VIBRATION_STRENGTH) / 100.0f;
+    vibrationStrength = Limit(0, ini.GetLongValue("Settings", "VibrationStrength", VIBRATION_STRENGTH), 200) / 100.0f;
 
     ini.SetBoolValue("Settings", "Enabled", isEnabled);
     ini.SetBoolValue("Settings", "Sound", isSoundEnabled);
@@ -91,18 +101,6 @@ void LoadSettings() {
     ini.SetLongValue("Settings", "VibrationStrength", vibrationStrength * 100.0f);
 
     (void)ini.SaveFile(path);
-}
-
-long Limit(long min, long value, long max) {
-    if (value < min) {
-        return min;
-    }
-
-    if (value > max) {
-        return max;
-    }
-
-    return value;
 }
 
 uint64_t AbsDiff(uint64_t left, uint64_t right) {
@@ -190,14 +188,15 @@ void PlayDebugSound(BGSSoundDescriptorForm* sound, PlayerCharacter* player) {
     handle.Play();
 }
 
-static void Vibrate(std::int32_t type, float power, float duration) {
-    if (!isVibrationEnabled) {
-        return;
-    }
-
-    using func_t = decltype(&Vibrate);
+static void VibrateImp(std::int32_t type, float power, float duration) {
+    using func_t = decltype(&VibrateImp);
     REL::Relocation<func_t> func{REL::RelocationID(67220, 68528)};
     func(type, power, duration);
+}
+
+static void Vibrate(float power, float duration) {
+    VibrateImp(0, power, duration);
+    VibrateImp(1, power, duration);
 }
 
 uint32_t GamepadKeycode(uint32_t dxScanCode) {
@@ -510,7 +509,7 @@ private:
 
             PlayDebugSound(powerAttackSound, player);
             
-            Vibrate(VibrationType::kSmooth, vibrationStrength, 0.24f);
+            Vibrate(vibrationStrength, 0.24f);
         } else {
             SetIsAttackIndicated(isLeft, false);
         }
