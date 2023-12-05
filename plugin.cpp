@@ -13,12 +13,16 @@ const int ACTION_MAX_RETRY = 4;
 const uint64_t DUAL_ATTACK_TIME_DIFF = 110;
 const int POWER_ATTACK_MIN_HOLD_TIME = 440;
 const int VIBRATION_STRENGTH = 25;
+const int DEFAULT_LEFT_BUTTON = 280;
+const int DEFAULT_RIGHT_BUTTON = 281;
 
 bool isEnabled = true;
 bool isSoundEnabled = true;
 bool isVibrationEnabled = true;
 float minPowerAttackHoldMs = 0.44f;
 float vibrationStrength = 0.25f;
+uint64_t leftButton = DEFAULT_LEFT_BUTTON;
+uint64_t rightButton = DEFAULT_RIGHT_BUTTON;
 
 const TaskInterface* tasks = NULL;
 BSAudioManager* audioManager = NULL;
@@ -81,6 +85,14 @@ long Limit(long min, long value, long max) {
     return value;
 }
 
+int LimitGamepadButton(int value, int defaultValue) {
+    if (value < 266 || value > 281) {
+        return defaultValue;
+    }
+
+    return value;
+}
+
 void LoadSettings() {
     constexpr auto path = L"Data/SKSE/Plugins/HoldPowerAttackNG.ini";
 
@@ -93,12 +105,18 @@ void LoadSettings() {
     isVibrationEnabled = ini.GetBoolValue("Settings", "Vibration", true);
     minPowerAttackHoldMs = ini.GetLongValue("Settings", "MinPowerAttackHoldMs", POWER_ATTACK_MIN_HOLD_TIME) / 1000.0f;
     vibrationStrength = Limit(0, ini.GetLongValue("Settings", "VibrationStrength", VIBRATION_STRENGTH), 200) / 100.0f;
+    leftButton =
+        LimitGamepadButton(ini.GetLongValue("Buttons", "OverrideLeftButton", DEFAULT_LEFT_BUTTON), DEFAULT_LEFT_BUTTON);
+    rightButton =
+        LimitGamepadButton(ini.GetLongValue("Buttons", "OverrideRightButton", DEFAULT_RIGHT_BUTTON), DEFAULT_RIGHT_BUTTON);
 
     ini.SetBoolValue("Settings", "Enabled", isEnabled);
     ini.SetBoolValue("Settings", "Sound", isSoundEnabled);
     ini.SetBoolValue("Settings", "Vibration", isVibrationEnabled);
     ini.SetLongValue("Settings", "MinPowerAttackHoldMs", minPowerAttackHoldMs * 1000.0f);
     ini.SetLongValue("Settings", "VibrationStrength", vibrationStrength * 100.0f);
+    ini.SetLongValue("Buttons", "OverrideLeftButton", leftButton);
+    ini.SetLongValue("Buttons", "OverrideRightButton", rightButton);
 
     (void)ini.SaveFile(path);
 }
@@ -306,7 +324,7 @@ bool IsEventLeft(ButtonEvent* a_event) {
     auto keyMask = a_event->GetIDCode();
 
     if (device == INPUT_DEVICE::kMouse && keyMask == 1) return true;
-    if (device == INPUT_DEVICE::kGamepad && GamepadKeycode(keyMask) == 280) return true;
+    if (device == INPUT_DEVICE::kGamepad && GamepadKeycode(keyMask) == leftButton) return true;
 
     return false;
 }
@@ -344,7 +362,7 @@ bool IsButtonEventValid(ButtonEvent* a_event) {
     auto device = a_event->device.get();
     auto keyMask = a_event->GetIDCode();
     if ((device != INPUT_DEVICE::kMouse && device != INPUT_DEVICE::kGamepad) ||
-        (device == INPUT_DEVICE::kGamepad && GamepadKeycode(keyMask) != 280 && GamepadKeycode(keyMask) != 281) ||
+        (device == INPUT_DEVICE::kGamepad && GamepadKeycode(keyMask) != leftButton && GamepadKeycode(keyMask) != rightButton) ||
         (device == INPUT_DEVICE::kMouse && keyMask != 0 && keyMask != 1)) {
         return false;
     }
