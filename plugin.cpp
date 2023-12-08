@@ -59,18 +59,18 @@ void SetIsAttackIndicated(bool isLeft, bool value) {
     }
 }
 
-std::string isEnabledTest = "true";
-
 void SetupLog() {
     auto logsFolder = SKSE::log::log_directory();
     if (!logsFolder) SKSE::stl::report_and_fail("SKSE log_directory not provided, logs disabled.");
     auto pluginName = SKSE::PluginDeclaration::GetSingleton()->GetName();
     auto logFilePath = *logsFolder / std::format("{}.log", pluginName);
-    auto fileLoggerPtr = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFilePath.string(), true);
-    auto loggerPtr = std::make_shared<spdlog::logger>("log", std::move(fileLoggerPtr));
-    spdlog::set_default_logger(std::move(loggerPtr));
-    spdlog::set_level(spdlog::level::trace);
-    spdlog::flush_on(spdlog::level::trace);
+    
+    auto log = std::make_shared<spdlog::logger>(
+        "Global", std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFilePath.string(), true));
+    log->set_level(spdlog::level::trace);
+    log->flush_on(spdlog::level::trace);
+
+    spdlog::set_default_logger(std::move(log));
 }
 
 long Limit(long min, long value, long max) {
@@ -361,6 +361,7 @@ bool IsButtonEventValid(ButtonEvent* a_event) {
 
     auto device = a_event->device.get();
     auto keyMask = a_event->GetIDCode();
+
     if ((device != INPUT_DEVICE::kMouse && device != INPUT_DEVICE::kGamepad) ||
         (device == INPUT_DEVICE::kGamepad && GamepadKeycode(keyMask) != leftButton && GamepadKeycode(keyMask) != rightButton) ||
         (device == INPUT_DEVICE::kMouse && keyMask != 0 && keyMask != 1)) {
@@ -384,8 +385,7 @@ bool IsEventValid(ButtonEvent* a_event) {
     const auto gameUI = UI::GetSingleton();
     const auto controlMap = ControlMap::GetSingleton();
 
-    if (gameUI == NULL || controlMap == NULL || (gameUI && gameUI->GameIsPaused()) ||
-        (controlMap && !controlMap->IsFightingControlsEnabled())) {
+    if (gameUI == NULL || controlMap == NULL || (gameUI && gameUI->GameIsPaused()) || controlMap == NULL) {
         return false;
     }
 
