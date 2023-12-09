@@ -23,6 +23,7 @@ float minPowerAttackHoldMs = 0.44f;
 float vibrationStrength = 0.25f;
 uint64_t leftButton = DEFAULT_LEFT_BUTTON;
 uint64_t rightButton = DEFAULT_RIGHT_BUTTON;
+bool isMouseReversed = false;
 
 const TaskInterface* tasks = NULL;
 BSAudioManager* audioManager = NULL;
@@ -109,14 +110,16 @@ void LoadSettings() {
         LimitGamepadButton(ini.GetLongValue("Buttons", "OverrideLeftButton", DEFAULT_LEFT_BUTTON), DEFAULT_LEFT_BUTTON);
     rightButton =
         LimitGamepadButton(ini.GetLongValue("Buttons", "OverrideRightButton", DEFAULT_RIGHT_BUTTON), DEFAULT_RIGHT_BUTTON);
+    isMouseReversed = ini.GetBoolValue("Buttons", "ReverseMouseButtons", false);
 
     ini.SetBoolValue("Settings", "Enabled", isEnabled);
     ini.SetBoolValue("Settings", "Sound", isSoundEnabled);
     ini.SetBoolValue("Settings", "Vibration", isVibrationEnabled);
-    ini.SetLongValue("Settings", "MinPowerAttackHoldMs", minPowerAttackHoldMs * 1000.0f);
-    ini.SetLongValue("Settings", "VibrationStrength", vibrationStrength * 100.0f);
-    ini.SetLongValue("Buttons", "OverrideLeftButton", leftButton);
-    ini.SetLongValue("Buttons", "OverrideRightButton", rightButton);
+    ini.SetLongValue("Settings", "MinPowerAttackHoldMs", (long)(minPowerAttackHoldMs * 1000.0f));
+    ini.SetLongValue("Settings", "VibrationStrength", (long)(vibrationStrength * 100.0f));
+    ini.SetLongValue("Buttons", "OverrideLeftButton", (long)leftButton);
+    ini.SetLongValue("Buttons", "OverrideRightButton", (long)rightButton);
+    ini.SetBoolValue("Buttons", "ReverseMouseButtons", isMouseReversed);
 
     (void)ini.SaveFile(path);
 }
@@ -323,7 +326,7 @@ bool IsEventLeft(ButtonEvent* a_event) {
     auto device = a_event->device.get();
     auto keyMask = a_event->GetIDCode();
 
-    if (device == INPUT_DEVICE::kMouse && keyMask == 1) return true;
+    if (device == INPUT_DEVICE::kMouse && keyMask == (uint32_t)(isMouseReversed ? 0 : 1)) return true;
     if (device == INPUT_DEVICE::kGamepad && GamepadKeycode(keyMask) == leftButton) return true;
 
     return false;
