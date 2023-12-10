@@ -523,8 +523,11 @@ private:
         bool altHandBehavior = isLeft ? rightAltBehavior : leftAltBehavior;
         float holdTime = isLeft ? leftHoldTime : rightHoldTime;
 
+        bool isBlocking = false;
+        player->GetGraphVariableBool("IsBlocking", isBlocking);
+
         bool isPlayerAttacking = IsPlayerAttacking(player);
-        bool isPowerAttack = IsPowerAttack(player, holdTime, altHandBehavior);
+        bool isPowerAttack = IsPowerAttack(player, holdTime, altHandBehavior && !isBlocking);
         
         if (!isPlayerAttacking && isPowerAttack) {
             if (isLeftAttackIndicated || isRightAttackIndicated) {
