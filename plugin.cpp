@@ -36,6 +36,7 @@ BGSAction* actionDualAttack;
 BGSAction* actionRightPowerAttack;
 BGSAction* actionLeftPowerAttack;
 BGSAction* actionDualPowerAttack;
+BGSAction* actionRightRelease;
 
 float leftHoldTime = 0.0f;
 float rightHoldTime = 0.0f;
@@ -51,6 +52,16 @@ bool rightAltBehavior = false;
 
 bool isLeftAttackIndicated = false;
 bool isRightAttackIndicated = false;
+
+int32_t bashLock = 0;
+
+void SetBashLock() { bashLock = 60; }
+
+void DecreaseBashLock() {
+    if (bashLock > 0) {
+        bashLock--;
+    }
+}
 
 void SetIsAttackIndicated(bool isLeft, bool value) {
     if (isLeft) {
@@ -483,10 +494,6 @@ private:
         bool isBlocking = false;
         playerCharacter->GetGraphVariableBool("IsBlocking", isBlocking);
 
-        if (isBlocking) {
-            return;
-        }
-
         if (shouldAttack || (timeDiff == 0 && isLeft)) {
             if (timeDiff == 0) {
                 logger::info("Nice reflex!");
@@ -499,15 +506,23 @@ private:
 
             auto isAttacking = IsPlayerAttacking(playerCharacter);
             auto isPowerAttack =
-                IsPowerAttack(playerCharacter, Max(tempLeftHoldTime, tempRightHoldTime), leftAltBehavior || rightAltBehavior);
+                IsPowerAttack(playerCharacter, Max(tempLeftHoldTime, tempRightHoldTime), (leftAltBehavior || rightAltBehavior) && !isBlocking);
             auto attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
 
             if (!isPowerAttack || (isPowerAttack && !isAttacking)) {
+                logger::info("Normal attack");
+
                 PerformAction(attackAction, playerCharacter, false);
+
+                if (!isLeft && !isPowerAttack && isBlocking) {
+                    PerformAction(actionRightRelease, playerCharacter, false);
+                }
             }
 
-            if (isPowerAttack && !isAttacking) {
+            if (isPowerAttack && !isAttacking && !isBlocking) {
                 attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
+
+                logger::info("Power attack");
 
                 PerformAction(attackAction, playerCharacter, true);
             }
@@ -570,6 +585,7 @@ void OnMessage(SKSE::MessagingInterface::Message* message) {
         actionRightPowerAttack = (BGSAction*)TESForm::LookupByID(0x13383);
         actionLeftPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f6);
         actionDualPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f7);
+        actionRightRelease = (BGSAction*)TESForm::LookupByID(0x13454);
         powerAttackSound = (BGSSoundDescriptorForm*)TESForm::LookupByID(0x10eb7a);
 
         audioManager = BSAudioManager::GetSingleton();
