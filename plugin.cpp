@@ -500,8 +500,6 @@ private:
             auto attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
 
             if (!isPowerAttack || (isPowerAttack && !isAttacking)) {
-                logger::info("Normal attack");
-
                 PerformAction(attackAction, playerCharacter, false);
 
                 if (!isLeft && !isPowerAttack && isBlocking) {
@@ -511,8 +509,6 @@ private:
 
             if (isPowerAttack && !isAttacking && !isBlocking) {
                 attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
-
-                logger::info("Power attack");
 
                 PerformAction(attackAction, playerCharacter, true);
             }
