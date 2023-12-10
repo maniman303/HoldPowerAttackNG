@@ -53,16 +53,6 @@ bool rightAltBehavior = false;
 bool isLeftAttackIndicated = false;
 bool isRightAttackIndicated = false;
 
-int32_t bashLock = 0;
-
-void SetBashLock() { bashLock = 60; }
-
-void DecreaseBashLock() {
-    if (bashLock > 0) {
-        bashLock--;
-    }
-}
-
 void SetIsAttackIndicated(bool isLeft, bool value) {
     if (isLeft) {
         isLeftAttackIndicated = value;
