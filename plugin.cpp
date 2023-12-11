@@ -10,7 +10,7 @@ using namespace SKSE::stl;
 const bool IS_DEBUG = false;
 
 const int ACTION_MAX_RETRY = 4;
-const uint64_t DUAL_ATTACK_TIME_DIFF = 110;
+const uint64_t DUAL_ATTACK_TIME_DIFF = 150;
 const int POWER_ATTACK_MIN_HOLD_TIME = 440;
 const int VIBRATION_STRENGTH = 25;
 const int DEFAULT_LEFT_BUTTON = 280;
@@ -36,6 +36,7 @@ BGSAction* actionDualAttack;
 BGSAction* actionRightPowerAttack;
 BGSAction* actionLeftPowerAttack;
 BGSAction* actionDualPowerAttack;
+BGSAction* actionLeftRelease;
 BGSAction* actionRightRelease;
 
 float leftHoldTime = 0.0f;
@@ -188,8 +189,17 @@ void PerformAction(BGSAction* action, Actor* actor, int index) {
     });
 }
 
+void PerformActionWithDelay(BGSAction* action, Actor* actor, int index) {
+    std::thread thread([action, actor, index]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        PerformAction(action, actor, index);
+    });
+    thread.detach();
+}
+
 void PerformAction(BGSAction* action, Actor* actor, bool isPowerAttack) {
     int index = isPowerAttack ? 0 : ACTION_MAX_RETRY;
+
     PerformAction(action, actor, index);
 }
 
@@ -323,6 +333,10 @@ BGSAction* GetAttackAction(bool isLeft, uint64_t timeDiff, bool isDualWielding, 
     return isPowerAttack ? actionRightPowerAttack : actionRightAttack;
 }
 
+bool IsActionDualAttack(BGSAction* action) {
+    return action == actionDualAttack || action == actionDualPowerAttack;
+}
+
 bool IsEventLeft(ButtonEvent* a_event) {
     auto device = a_event->device.get();
     auto keyMask = a_event->GetIDCode();
@@ -421,7 +435,7 @@ public:
         FnProcessButton fn = fnHash.at(*(uintptr_t*)this);
 
         if (IsEventValid(a_event)) {
-            ProcessEvent(a_event);
+            ProcessEvent(a_event, a_data, fn);
 
             return;
         }
@@ -464,6 +478,8 @@ private:
         auto tempIsLeftDualHeld = isLeftDualHeld;
         auto tempIsRightDualHeld = isRightDualHeld;
 
+        auto isDualWielding = IsDualWielding();
+
         auto shouldAttack = false;
         uint64_t timeDiff = 0;
 
@@ -491,12 +507,12 @@ private:
 
             SetIsAttackIndicated(isLeft, false);
 
-            auto isDualWielding = IsDualWielding();
             auto isDualHeld = isLeft ? tempIsRightDualHeld : tempIsLeftDualHeld;
 
             auto isAttacking = IsPlayerAttacking(playerCharacter);
             auto isPowerAttack =
                 IsPowerAttack(playerCharacter, Max(tempLeftHoldTime, tempRightHoldTime), (leftAltBehavior || rightAltBehavior) && !isBlocking);
+
             auto attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
 
             if (!isPowerAttack || (isPowerAttack && !isAttacking)) {
@@ -511,6 +527,10 @@ private:
                 attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
 
                 PerformAction(attackAction, playerCharacter, true);
+            }
+
+            if (!IsActionDualAttack(attackAction)) {
+                PerformAction(isLeft ? actionLeftRelease : actionRightAttack, playerCharacter, false);   
             }
         }
     }
@@ -540,7 +560,7 @@ private:
         }
     }
 
-    void ProcessEvent(ButtonEvent* buttonEvent) {
+    void ProcessEvent(ButtonEvent* buttonEvent, void* buttonData, FnProcessButton fn) {
         const auto playerCharacter = PlayerCharacter::GetSingleton();
 
         auto isLeft = IsEventLeft(buttonEvent);
@@ -574,6 +594,7 @@ void OnMessage(SKSE::MessagingInterface::Message* message) {
         actionRightPowerAttack = (BGSAction*)TESForm::LookupByID(0x13383);
         actionLeftPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f6);
         actionDualPowerAttack = (BGSAction*)TESForm::LookupByID(0x2e2f7);
+        actionLeftRelease = (BGSAction*)TESForm::LookupByID(0x13451);
         actionRightRelease = (BGSAction*)TESForm::LookupByID(0x13454);
         powerAttackSound = (BGSSoundDescriptorForm*)TESForm::LookupByID(0x10eb7a);
 
