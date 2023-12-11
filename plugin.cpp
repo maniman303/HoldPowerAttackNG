@@ -10,7 +10,7 @@ using namespace SKSE::stl;
 const bool IS_DEBUG = false;
 
 const int ACTION_MAX_RETRY = 4;
-const uint64_t DUAL_ATTACK_TIME_DIFF = 150;
+const uint64_t DUAL_ATTACK_TIME_DIFF = 130;
 const int POWER_ATTACK_MIN_HOLD_TIME = 440;
 const int VIBRATION_STRENGTH = 25;
 const int DEFAULT_LEFT_BUTTON = 280;
@@ -24,6 +24,8 @@ float vibrationStrength = 0.25f;
 uint64_t leftButton = DEFAULT_LEFT_BUTTON;
 uint64_t rightButton = DEFAULT_RIGHT_BUTTON;
 bool isMouseReversed = false;
+
+bool dualWieldParryCompatibility = false;
 
 const TaskInterface* tasks = NULL;
 BSAudioManager* audioManager = NULL;
@@ -114,6 +116,8 @@ void LoadSettings() {
         LimitGamepadButton(ini.GetLongValue("Buttons", "OverrideRightButton", DEFAULT_RIGHT_BUTTON), DEFAULT_RIGHT_BUTTON);
     isMouseReversed = ini.GetBoolValue("Buttons", "ReverseMouseButtons", false);
 
+    dualWieldParryCompatibility = ini.GetBoolValue("Compatibility", "BorgutDualWieldParry", false);
+
     ini.SetBoolValue("Settings", "Enabled", isEnabled);
     ini.SetBoolValue("Settings", "Sound", isSoundEnabled);
     ini.SetBoolValue("Settings", "Vibration", isVibrationEnabled);
@@ -122,6 +126,7 @@ void LoadSettings() {
     ini.SetLongValue("Buttons", "OverrideLeftButton", (long)leftButton);
     ini.SetLongValue("Buttons", "OverrideRightButton", (long)rightButton);
     ini.SetBoolValue("Buttons", "ReverseMouseButtons", isMouseReversed);
+    ini.SetBoolValue("Compatibility", "BorgutDualWieldParry", dualWieldParryCompatibility);
 
     (void)ini.SaveFile(path);
 }
@@ -153,6 +158,10 @@ float Min(float left, float right) {
 uint64_t TimeMillisec() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+bool IsActionDualAttack(BGSAction* action) {
+    return action == actionDualAttack || action == actionDualPowerAttack;
 }
 
 void PerformAction(BGSAction* action, Actor* actor, int index) {
@@ -191,7 +200,7 @@ void PerformAction(BGSAction* action, Actor* actor, int index) {
 
 void PerformActionWithDelay(BGSAction* action, Actor* actor, int index) {
     std::thread thread([action, actor, index]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         PerformAction(action, actor, index);
     });
     thread.detach();
@@ -199,6 +208,11 @@ void PerformActionWithDelay(BGSAction* action, Actor* actor, int index) {
 
 void PerformAction(BGSAction* action, Actor* actor, bool isPowerAttack) {
     int index = isPowerAttack ? 0 : ACTION_MAX_RETRY;
+
+    if (dualWieldParryCompatibility && IsActionDualAttack(action)) {
+        PerformActionWithDelay(action, actor, index);
+        return;
+    }
 
     PerformAction(action, actor, index);
 }
@@ -307,6 +321,44 @@ float GetPlayerStamina(PlayerCharacter* player) {
     return player->AsActorValueOwner()->GetActorValue(ActorValue::kStamina);
 }
 
+bool IsWeaponValid(TESObjectWEAP* weapon, bool isLeft) {
+    if (weapon == NULL) {
+        return false;
+    }
+
+    if (!weapon->IsWeapon() || weapon->IsBow() || weapon->IsCrossbow() || weapon->IsStaff()) {
+        return false;
+    }
+
+    if (isLeft && (weapon->IsTwoHandedAxe() || weapon->IsTwoHandedSword())) {
+        return false;
+    }
+
+    return true;
+}
+
+bool IsDualWielding(PlayerCharacter* player) {
+    auto weaponLeft = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(true));
+    auto weaponRight = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(false));
+
+    return IsWeaponValid(weaponLeft, true) && IsWeaponValid(weaponRight, false);
+}
+
+bool IsPowerAttackAlt(PlayerCharacter* player, float maxDuration, bool isLeftHandBusy, bool isRightHandBusy, bool isBlocking) {
+    if (GetPlayerStamina(player) <= 1.0f) {
+        return false;
+    }
+
+    auto isPowerAttack = maxDuration > minPowerAttackHoldMs;
+    bool isDualWielding = IsDualWielding(player);
+
+    if ((!dualWieldParryCompatibility || !isDualWielding) && (isLeftHandBusy || isRightHandBusy) && !isBlocking) {
+        isPowerAttack = false;
+    }
+
+    return isPowerAttack;
+}
+
 bool IsPowerAttack(PlayerCharacter* player, float maxDuration, bool isOtherHandBusy) {
     if (GetPlayerStamina(player) <= 1.0f) {
         return false;
@@ -333,10 +385,6 @@ BGSAction* GetAttackAction(bool isLeft, uint64_t timeDiff, bool isDualWielding, 
     return isPowerAttack ? actionRightPowerAttack : actionRightAttack;
 }
 
-bool IsActionDualAttack(BGSAction* action) {
-    return action == actionDualAttack || action == actionDualPowerAttack;
-}
-
 bool IsEventLeft(ButtonEvent* a_event) {
     auto device = a_event->device.get();
     auto keyMask = a_event->GetIDCode();
@@ -345,31 +393,6 @@ bool IsEventLeft(ButtonEvent* a_event) {
     if (device == INPUT_DEVICE::kGamepad && GamepadKeycode(keyMask) == leftButton) return true;
 
     return false;
-}
-
-bool IsWeaponValid(TESObjectWEAP* weapon, bool isLeft) {
-    if (weapon == NULL) {
-        return false;
-    }
-
-    if (!weapon->IsWeapon() || weapon->IsBow() || weapon->IsCrossbow() || weapon->IsStaff()) {
-        return false;
-    }
-
-    if (isLeft && (weapon->IsTwoHandedAxe() || weapon->IsTwoHandedSword())) {
-        return false;
-    }
-
-    return true;
-}
-
-bool IsDualWielding() {
-    const auto player = PlayerCharacter::GetSingleton();
-
-    auto weaponLeft = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(true));
-    auto weaponRight = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(false));
-
-    return IsWeaponValid(weaponLeft, true) && IsWeaponValid(weaponRight, false);
 }
 
 bool IsButtonEventValid(ButtonEvent* a_event) {
@@ -422,7 +445,14 @@ bool IsEventValid(ButtonEvent* a_event) {
         return false;
     }
 
-    auto weapon = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(isLeft));
+    auto weaponLeft = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(true));
+    auto weaponRight = reinterpret_cast<TESObjectWEAP*>(player->GetEquippedObject(false));
+
+    if (dualWieldParryCompatibility && IsWeaponValid(weaponLeft, true) && !IsWeaponValid(weaponRight, false)) {
+        return false;
+    }
+
+    auto weapon = isLeft ? weaponLeft : weaponRight;
 
     return IsWeaponValid(weapon, isLeft);
 }
@@ -478,7 +508,7 @@ private:
         auto tempIsLeftDualHeld = isLeftDualHeld;
         auto tempIsRightDualHeld = isRightDualHeld;
 
-        auto isDualWielding = IsDualWielding();
+        auto isDualWielding = IsDualWielding(playerCharacter);
 
         auto shouldAttack = false;
         uint64_t timeDiff = 0;
@@ -508,14 +538,27 @@ private:
             SetIsAttackIndicated(isLeft, false);
 
             auto isDualHeld = isLeft ? tempIsRightDualHeld : tempIsLeftDualHeld;
+            float maxHoldTime = Max(tempLeftHoldTime, tempRightHoldTime);
 
             auto isAttacking = IsPlayerAttacking(playerCharacter);
             auto isPowerAttack =
-                IsPowerAttack(playerCharacter, Max(tempLeftHoldTime, tempRightHoldTime), (leftAltBehavior || rightAltBehavior) && !isBlocking);
+                IsPowerAttackAlt(playerCharacter, maxHoldTime, leftAltBehavior, rightAltBehavior, isBlocking);
 
             auto attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, false);
 
+            // Borgut Dual Wield Parry Compatibility
+            if (dualWieldParryCompatibility && isLeft && isDualWielding && !IsActionDualAttack(attackAction)) {
+                PerformAction(actionLeftRelease, playerCharacter, false);
+
+                return;
+            }
+
             if (!isPowerAttack || (isPowerAttack && !isAttacking)) {
+                // Borgut Dual Wield Parry Compatibility
+                if (dualWieldParryCompatibility && IsActionDualAttack(attackAction)) {
+                    PerformAction(actionLeftRelease, playerCharacter, false);
+                }
+
                 PerformAction(attackAction, playerCharacter, false);
 
                 if (!isLeft && !isPowerAttack && isBlocking) {
@@ -523,27 +566,26 @@ private:
                 }
             }
 
-            if (isPowerAttack && !isAttacking && !isBlocking) {
+            if (isPowerAttack && !isAttacking && (!isBlocking || (dualWieldParryCompatibility && isDualWielding))) {
                 attackAction = GetAttackAction(isLeft, timeDiff, isDualWielding, isDualHeld, true);
 
                 PerformAction(attackAction, playerCharacter, true);
             }
 
             if (!IsActionDualAttack(attackAction)) {
-                PerformAction(isLeft ? actionLeftRelease : actionRightAttack, playerCharacter, false);   
+                PerformAction(isLeft ? actionLeftRelease : actionRightAttack, playerCharacter, false);  
             }
         }
     }
 
     void TryIndicatePowerAttack(bool isLeft, PlayerCharacter* player) {
-        bool altHandBehavior = isLeft ? rightAltBehavior : leftAltBehavior;
         float holdTime = isLeft ? leftHoldTime : rightHoldTime;
 
         bool isBlocking = false;
         player->GetGraphVariableBool("IsBlocking", isBlocking);
 
         bool isPlayerAttacking = IsPlayerAttacking(player);
-        bool isPowerAttack = IsPowerAttack(player, holdTime, altHandBehavior && !isBlocking);
+        bool isPowerAttack = IsPowerAttackAlt(player, holdTime, leftAltBehavior, rightAltBehavior, isBlocking);
         
         if (!isPlayerAttacking && isPowerAttack) {
             if (isLeftAttackIndicated || isRightAttackIndicated) {
@@ -577,6 +619,10 @@ private:
             }
 
             TryIndicatePowerAttack(isLeft, playerCharacter);
+
+            if (dualWieldParryCompatibility && isLeft && IsDualWielding(playerCharacter)) {
+                if (fn) (this->*fn)(buttonEvent, buttonData);
+            }
         }
 
         if (buttonEvent->IsUp()) {
